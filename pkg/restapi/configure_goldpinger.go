@@ -17,8 +17,8 @@
 package restapi
 
 import (
+	"context"
 	"crypto/tls"
-	"log"
 	"net/http"
 
 	"strings"
@@ -26,9 +26,10 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	"go.uber.org/zap"
 
-	"github.com/bloomberg/goldpinger/pkg/goldpinger"
-	"github.com/bloomberg/goldpinger/pkg/restapi/operations"
+	"github.com/bloomberg/goldpinger/v3/pkg/goldpinger"
+	"github.com/bloomberg/goldpinger/v3/pkg/restapi/operations"
 	"github.com/go-openapi/swag"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -47,6 +48,7 @@ func configureFlags(api *operations.GoldpingerAPI) {
 
 func configureAPI(api *operations.GoldpingerAPI) http.Handler {
 	// configure the api here
+	api.Logger = zap.S().Infof
 	api.ServeError = errors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
@@ -55,19 +57,69 @@ func configureAPI(api *operations.GoldpingerAPI) http.Handler {
 	api.PingHandler = operations.PingHandlerFunc(
 		func(params operations.PingParams) middleware.Responder {
 			goldpinger.CountCall("received", "ping")
-			return operations.NewPingOK().WithPayload(goldpinger.GetStats())
+
+			ctx, cancel := context.WithTimeout(
+				params.HTTPRequest.Context(),
+				goldpinger.GoldpingerConfig.PingTimeout,
+			)
+			defer cancel()
+
+			return operations.NewPingOK().WithPayload(goldpinger.GetStats(ctx))
 		})
 
 	api.CheckServicePodsHandler = operations.CheckServicePodsHandlerFunc(
 		func(params operations.CheckServicePodsParams) middleware.Responder {
 			goldpinger.CountCall("received", "check")
-			return operations.NewCheckServicePodsOK().WithPayload(goldpinger.CheckNeighbours())
+
+			ctx, cancel := context.WithTimeout(
+				params.HTTPRequest.Context(),
+				goldpinger.GoldpingerConfig.CheckTimeout,
+			)
+			defer cancel()
+
+			return operations.NewCheckServicePodsOK().WithPayload(goldpinger.CheckNeighbours(ctx))
 		})
 
 	api.CheckAllPodsHandler = operations.CheckAllPodsHandlerFunc(
 		func(params operations.CheckAllPodsParams) middleware.Responder {
 			goldpinger.CountCall("received", "check_all")
-			return operations.NewCheckAllPodsOK().WithPayload(goldpinger.CheckNeighboursNeighbours())
+
+			ctx, cancel := context.WithTimeout(
+				params.HTTPRequest.Context(),
+				goldpinger.GoldpingerConfig.CheckAllTimeout,
+			)
+			defer cancel()
+
+			return operations.NewCheckAllPodsOK().WithPayload(goldpinger.CheckNeighboursNeighbours(ctx))
+		})
+
+	api.ClusterHealthHandler = operations.ClusterHealthHandlerFunc(
+		func(params operations.ClusterHealthParams) middleware.Responder {
+			goldpinger.CountCall("received", "cluster_health")
+
+			ctx, cancel := context.WithTimeout(
+				params.HTTPRequest.Context(),
+				goldpinger.GoldpingerConfig.CheckAllTimeout,
+			)
+			defer cancel()
+
+			payload := goldpinger.CheckCluster(ctx)
+			if payload.OK {
+				return operations.NewClusterHealthOK().WithPayload(payload)
+			} else {
+				return operations.NewClusterHealthIMATeapot().WithPayload(payload)
+			}
+		})
+
+	api.HealthzHandler = operations.HealthzHandlerFunc(
+		func(params operations.HealthzParams) middleware.Responder {
+			goldpinger.CountCall("received", "healthz")
+			healthResult := goldpinger.HealthCheck()
+			if *healthResult.OK {
+				return operations.NewHealthzOK().WithPayload(healthResult)
+			} else {
+				return operations.NewHealthzServiceUnavailable().WithPayload(healthResult)
+			}
 		})
 
 	api.ServerShutdown = func() {}
@@ -94,11 +146,13 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 }
 
 func fileServerMiddleware(next http.Handler) http.Handler {
-	log.Println("Added the static middleware")
+	zap.L().Info("Added the static middleware")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fileServer := http.FileServer(http.Dir(goldpinger.GoldpingerConfig.StaticFilePath))
 		if r.URL.Path == "/" {
 			http.StripPrefix("/", fileServer).ServeHTTP(w, r)
+		} else if r.URL.Path == "/heatmap.png" {
+			goldpinger.HeatmapHandler(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/static/") {
 			http.StripPrefix("/static/", fileServer).ServeHTTP(w, r)
 		} else {
@@ -109,7 +163,7 @@ func fileServerMiddleware(next http.Handler) http.Handler {
 }
 
 func prometheusMetricsMiddleware(next http.Handler) http.Handler {
-	log.Println("Added the prometheus middleware")
+	zap.L().Info("Added the prometheus middleware")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/metrics" {
 			http.StripPrefix("/metrics", promhttp.Handler()).ServeHTTP(w, r)

@@ -15,17 +15,25 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/go-openapi/loads"
+	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/net"
 
-	"github.com/bloomberg/goldpinger/pkg/goldpinger"
-	"github.com/bloomberg/goldpinger/pkg/restapi"
-	"github.com/bloomberg/goldpinger/pkg/restapi/operations"
+	"github.com/bloomberg/goldpinger/v3/pkg/goldpinger"
+	"github.com/bloomberg/goldpinger/v3/pkg/restapi"
+	"github.com/bloomberg/goldpinger/v3/pkg/restapi/operations"
 	flags "github.com/jessevdk/go-flags"
 )
 
@@ -34,14 +42,32 @@ var (
 	Version, Build string
 )
 
+func getLogger(zapconfigpath string) (*zap.Logger, error) {
+	var logger *zap.Logger
+	var err error
+
+	zapconfigJSON, err := ioutil.ReadFile(zapconfigpath)
+	if err != nil {
+		return nil, fmt.Errorf("Could not read zap config file: %w", err)
+	}
+
+	var cfg zap.Config
+	if err := json.Unmarshal(zapconfigJSON, &cfg); err != nil {
+		return nil, fmt.Errorf("Could not read zap config as json: %w", err)
+	}
+	logger, err = cfg.Build()
+	if err != nil {
+		return nil, fmt.Errorf("Could not build zap config: %w", err)
+	}
+
+	return logger, nil
+}
+
 func main() {
-
-	log.Println("Goldpinger version:", Version, "build:", Build)
-
 	// load embedded swagger file
 	swaggerSpec, err := loads.Analyzed(restapi.SwaggerJSON, "")
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf("Could not parse swagger: %v", err)
 	}
 
 	// create new service API
@@ -58,7 +84,7 @@ func main() {
 	for _, optsGroup := range api.CommandLineOptionsGroups {
 		_, err := parser.AddGroup(optsGroup.ShortDescription, optsGroup.LongDescription, optsGroup.Options)
 		if err != nil {
-			log.Fatalln(err)
+			log.Fatalf("Could not add flag group: %v", err)
 		}
 	}
 
@@ -72,22 +98,49 @@ func main() {
 		os.Exit(code)
 	}
 
+	// Configure logger
+	logger, err := getLogger(goldpinger.GoldpingerConfig.ZapConfigPath)
+	if err != nil {
+		var errDev error
+		logger, errDev = zap.NewDevelopment()
+		if errDev != nil {
+			log.Fatalf("Could not build a development logger: %v", errDev)
+		}
+		logger.Warn("Logger could not be built, defaulting to development settings", zap.String("error", fmt.Sprintf("%v", err)))
+	}
+	defer logger.Sync()
+
+	undo := zap.RedirectStdLog(logger)
+	defer undo()
+
+	logger.Info("Goldpinger", zap.String("version", Version), zap.String("build", Build))
+
+	if goldpinger.GoldpingerConfig.Namespace == nil {
+		goldpinger.GoldpingerConfig.Namespace = &goldpinger.PodNamespace
+	} else {
+		logger.Info("Using configured namespace", zap.String("namespace", *goldpinger.GoldpingerConfig.Namespace))
+	}
+
 	// make a kubernetes client
 	var config *rest.Config
 	if goldpinger.GoldpingerConfig.KubeConfigPath == "" {
-		log.Println("Kubeconfig not specified, trying to use in cluster config")
+		logger.Info("Kubeconfig not specified, trying to use in cluster config")
 		config, err = rest.InClusterConfig()
 	} else {
-		log.Println("Kubeconfig specified in ", goldpinger.GoldpingerConfig.KubeConfigPath)
+		logger.Info("Kubeconfig specified", zap.String("path", goldpinger.GoldpingerConfig.KubeConfigPath))
 		config, err = clientcmd.BuildConfigFromFlags("", goldpinger.GoldpingerConfig.KubeConfigPath)
 	}
 	if err != nil {
-		log.Fatalln("Error getting config ", err.Error())
+		logger.Fatal("Error getting config ", zap.Error(err))
 	}
+	// communicate to kube-apiserver with protobuf
+	config.AcceptContentTypes = strings.Join([]string{runtime.ContentTypeProtobuf, runtime.ContentTypeJSON}, ",")
+	config.ContentType = runtime.ContentTypeProtobuf
+
 	// create the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		log.Fatalln("kubernetes.NewForConfig error ", err.Error())
+		logger.Fatal("kubernetes.NewForConfig error ", zap.Error(err))
 	}
 	goldpinger.GoldpingerConfig.KubernetesClient = clientset
 
@@ -96,13 +149,47 @@ func main() {
 		goldpinger.GoldpingerConfig.Port = server.Port
 	}
 
+	if goldpinger.GoldpingerConfig.PodIP == "" {
+		logger.Info("PodIP not set: pinging all pods")
+	}
+	if goldpinger.GoldpingerConfig.PingNumber == 0 {
+		logger.Info("--ping-number set to 0: pinging all pods")
+	}
+	if goldpinger.GoldpingerConfig.IPVersions == nil || len(goldpinger.GoldpingerConfig.IPVersions) == 0 {
+		logger.Info("IPVersions not set: settings to 4 (IPv4)")
+		goldpinger.GoldpingerConfig.IPVersions = []string{"4"}
+	}
+	if len(goldpinger.GoldpingerConfig.IPVersions) > 1 {
+		logger.Warn("Multiple IP versions not supported. Will use first version specified as default", zap.Strings("IPVersions", goldpinger.GoldpingerConfig.IPVersions))
+	}
+	if goldpinger.GoldpingerConfig.IPVersions[0] != string(net.IPv4) && goldpinger.GoldpingerConfig.IPVersions[0] != string(net.IPv6) {
+		logger.Error("Unknown IP version specified: expected values are 4 or 6", zap.Strings("IPVersions", goldpinger.GoldpingerConfig.IPVersions))
+	}
+
+	// Handle deprecated flags
+	if int(goldpinger.GoldpingerConfig.PingTimeout) == 0 {
+		logger.Warn("ping-timeout-ms is deprecated in favor of ping-timeout and will be removed in the future",
+			zap.Int64("ping-timeout-ms", goldpinger.GoldpingerConfig.PingTimeoutMs))
+		goldpinger.GoldpingerConfig.PingTimeout = time.Duration(goldpinger.GoldpingerConfig.PingTimeoutMs) * time.Millisecond
+	}
+	if int(goldpinger.GoldpingerConfig.CheckTimeout) == 0 {
+		logger.Warn("check-timeout-ms is deprecated in favor of check-timeout and will be removed in the future",
+			zap.Int64("check-timeout-ms", goldpinger.GoldpingerConfig.CheckTimeoutMs))
+		goldpinger.GoldpingerConfig.CheckTimeout = time.Duration(goldpinger.GoldpingerConfig.CheckTimeoutMs) * time.Millisecond
+	}
+	if int(goldpinger.GoldpingerConfig.CheckAllTimeout) == 0 {
+		logger.Warn("check-all-timeout-ms is deprecated in favor of check-all-timeout will be removed in the future",
+			zap.Int64("check-all-timeout-ms", goldpinger.GoldpingerConfig.CheckAllTimeoutMs))
+		goldpinger.GoldpingerConfig.CheckAllTimeout = time.Duration(goldpinger.GoldpingerConfig.CheckAllTimeoutMs) * time.Millisecond
+	}
+
 	server.ConfigureAPI()
 	goldpinger.StartUpdater()
 
-	log.Println("All good, starting serving the API")
+	logger.Info("All good, starting serving the API")
 
 	// serve API
 	if err := server.Serve(); err != nil {
-		log.Fatalln(err)
+		logger.Fatal("Error serving the API", zap.Error(err))
 	}
 }

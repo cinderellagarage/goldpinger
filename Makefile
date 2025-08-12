@@ -1,15 +1,16 @@
 name ?= goldpinger
-version ?= 1.1.0
+version ?= v3.10.2
 bin ?= goldpinger
 pkg ?= "github.com/bloomberg/goldpinger"
 tag = $(name):$(version)
 goos ?= ${GOOS}
-namespace ?= ""
+goarch ?= ${GOARCH}
+namespace ?= "bloomberg/"
 files = $(shell find . -iname "*.go")
 
 
 bin/$(bin): $(files)
-	GOOS=${goos} PKG=${pkg} ARCH=amd64 VERSION=${version} BIN=${bin} ./build/build.sh
+	GOOS=${goos} PKG=${pkg} ARCH=${goarch} VERSION=${version} BIN=${bin} ./build/build.sh
 
 clean:
 	rm -rf ./vendor
@@ -17,29 +18,28 @@ clean:
 
 vendor:
 	rm -rf ./vendor
-	dep ensure -v -vendor-only
+	go mod vendor
 
+# Download the latest swagger releases from: https://github.com/go-swagger/go-swagger/releases/
 swagger:
 	swagger generate server -t pkg -f ./swagger.yml --exclude-main -A goldpinger && \
 	swagger generate client -t pkg -f ./swagger.yml -A goldpinger
 
-build-multistage:
-	docker build -t $(tag) -f ./Dockerfile .
-
-build: GOOS=linux
-build: bin/$(bin)
-	docker build -t $(tag) -f ./build/Dockerfile-simple .
-
-tag:
-	docker tag $(tag) $(namespace)$(tag)
-
-push:
-	docker push $(namespace)$(tag)
-
 run:
 	go run ./cmd/goldpinger/main.go
-	
-version:
-	@echo $(tag)
 
-.PHONY: clean vendor swagger build build-multistage tag push run version
+build:
+	docker build -t $(namespace)$(tag) --target simple -f ./Dockerfile .
+
+build-vendor:
+	docker build -t $(namespace)$(tag)-vendor --target vendor -f ./Dockerfile .
+
+build-release:
+	docker buildx build --push --platform linux/amd64,linux/arm64 --target simple -t $(namespace)$(tag) -f ./Dockerfile .
+	docker buildx build --push --platform linux/amd64,linux/arm64 --target vendor -t $(namespace)$(tag)-vendor -f ./Dockerfile .
+
+version:
+	@echo $(namespace)$(tag)
+
+
+.PHONY: clean vendor swagger build build-release build-vendor run version

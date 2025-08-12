@@ -21,7 +21,7 @@ func init() {
   "swagger": "2.0",
   "info": {
     "title": "Goldpinger",
-    "version": "1.0.0"
+    "version": "3.0.0"
   },
   "paths": {
     "/check": {
@@ -53,6 +53,52 @@ func init() {
             "description": "Success, return response",
             "schema": {
               "$ref": "#/definitions/CheckAllResults"
+            }
+          }
+        }
+      }
+    },
+    "/cluster_health": {
+      "get": {
+        "description": "Checks the full graph. Returns a binary OK or not OK.",
+        "produces": [
+          "application/json"
+        ],
+        "operationId": "clusterHealth",
+        "responses": {
+          "200": {
+            "description": "Healthy cluster",
+            "schema": {
+              "$ref": "#/definitions/ClusterHealthResults"
+            }
+          },
+          "418": {
+            "description": "Unhealthy cluster",
+            "schema": {
+              "$ref": "#/definitions/ClusterHealthResults"
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "description": "The healthcheck endpoint provides detailed information about the health of a web service. If each of the components required by the service are healthy, then the service is considered healthy and will return a 200 OK response. If any of the components needed by the service are unhealthy, then a 503 Service Unavailable response will be provided.",
+        "produces": [
+          "application/json"
+        ],
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "description": "Health check report",
+            "schema": {
+              "$ref": "#/definitions/HealthCheckResults"
+            }
+          },
+          "503": {
+            "description": "Unhealthy service",
+            "schema": {
+              "$ref": "#/definitions/HealthCheckResults"
             }
           }
         }
@@ -101,6 +147,10 @@ func init() {
           "type": "boolean",
           "default": false
         },
+        "PodIP": {
+          "type": "string",
+          "format": "ipv4"
+        },
         "error": {
           "type": "string"
         },
@@ -120,6 +170,12 @@ func init() {
           "type": "boolean",
           "default": false
         },
+        "dnsResults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/DnsResults"
+          }
+        },
         "hosts": {
           "type": "array",
           "items": {
@@ -132,6 +188,9 @@ func init() {
               "podIP": {
                 "type": "string",
                 "format": "ipv4"
+              },
+              "podName": {
+                "type": "string"
               }
             }
           }
@@ -144,18 +203,109 @@ func init() {
           "type": "integer",
           "format": "int32"
         },
+        "httpResults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/HttpResults"
+          }
+        },
         "responses": {
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/CheckAllPodResult"
+          }
+        },
+        "tcpResults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/TcpResults"
           }
         }
       }
     },
     "CheckResults": {
       "type": "object",
+      "properties": {
+        "dnsResults": {
+          "$ref": "#/definitions/DnsResults"
+        },
+        "httpResults": {
+          "$ref": "#/definitions/HttpResults"
+        },
+        "podResults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/PodResult"
+          }
+        },
+        "tcpResults": {
+          "$ref": "#/definitions/TcpResults"
+        }
+      }
+    },
+    "ClusterHealthResults": {
+      "type": "object",
+      "required": [
+        "OK"
+      ],
+      "properties": {
+        "OK": {
+          "type": "boolean",
+          "default": false
+        },
+        "duration-ns": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "generated-at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "nodesHealthy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nodesTotal": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "nodesUnhealthy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "DnsResults": {
+      "type": "object",
       "additionalProperties": {
-        "$ref": "#/definitions/PodResult"
+        "$ref": "#/definitions/ProbeResult"
+      }
+    },
+    "HealthCheckResults": {
+      "type": "object",
+      "properties": {
+        "OK": {
+          "type": "boolean",
+          "default": false
+        },
+        "duration-ns": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "generated-at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "HttpResults": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ProbeResult"
       }
     },
     "PingResults": {
@@ -181,16 +331,46 @@ func init() {
           "type": "boolean",
           "default": false
         },
+        "PingTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "PodIP": {
+          "type": "string",
+          "format": "ipv4"
+        },
         "error": {
           "type": "string"
         },
         "response": {
           "$ref": "#/definitions/PingResults"
         },
+        "response-time-ms": {
+          "description": "wall clock time in milliseconds",
+          "type": "number",
+          "format": "int64"
+        },
         "status-code": {
           "type": "integer",
           "format": "int32"
         }
+      }
+    },
+    "ProbeResult": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "response-time-ms": {
+          "type": "number",
+          "format": "int64"
+        }
+      }
+    },
+    "TcpResults": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ProbeResult"
       }
     }
   }
@@ -199,7 +379,7 @@ func init() {
   "swagger": "2.0",
   "info": {
     "title": "Goldpinger",
-    "version": "1.0.0"
+    "version": "3.0.0"
   },
   "paths": {
     "/check": {
@@ -231,6 +411,52 @@ func init() {
             "description": "Success, return response",
             "schema": {
               "$ref": "#/definitions/CheckAllResults"
+            }
+          }
+        }
+      }
+    },
+    "/cluster_health": {
+      "get": {
+        "description": "Checks the full graph. Returns a binary OK or not OK.",
+        "produces": [
+          "application/json"
+        ],
+        "operationId": "clusterHealth",
+        "responses": {
+          "200": {
+            "description": "Healthy cluster",
+            "schema": {
+              "$ref": "#/definitions/ClusterHealthResults"
+            }
+          },
+          "418": {
+            "description": "Unhealthy cluster",
+            "schema": {
+              "$ref": "#/definitions/ClusterHealthResults"
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "description": "The healthcheck endpoint provides detailed information about the health of a web service. If each of the components required by the service are healthy, then the service is considered healthy and will return a 200 OK response. If any of the components needed by the service are unhealthy, then a 503 Service Unavailable response will be provided.",
+        "produces": [
+          "application/json"
+        ],
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "description": "Health check report",
+            "schema": {
+              "$ref": "#/definitions/HealthCheckResults"
+            }
+          },
+          "503": {
+            "description": "Unhealthy service",
+            "schema": {
+              "$ref": "#/definitions/HealthCheckResults"
             }
           }
         }
@@ -279,6 +505,10 @@ func init() {
           "type": "boolean",
           "default": false
         },
+        "PodIP": {
+          "type": "string",
+          "format": "ipv4"
+        },
         "error": {
           "type": "string"
         },
@@ -298,20 +528,16 @@ func init() {
           "type": "boolean",
           "default": false
         },
+        "dnsResults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/DnsResults"
+          }
+        },
         "hosts": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "hostIP": {
-                "type": "string",
-                "format": "ipv4"
-              },
-              "podIP": {
-                "type": "string",
-                "format": "ipv4"
-              }
-            }
+            "$ref": "#/definitions/CheckAllResultsHostsItems0"
           }
         },
         "hosts-healthy": {
@@ -322,18 +548,125 @@ func init() {
           "type": "integer",
           "format": "int32"
         },
+        "httpResults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/HttpResults"
+          }
+        },
         "responses": {
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/CheckAllPodResult"
           }
+        },
+        "tcpResults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/TcpResults"
+          }
+        }
+      }
+    },
+    "CheckAllResultsHostsItems0": {
+      "type": "object",
+      "properties": {
+        "hostIP": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "podIP": {
+          "type": "string",
+          "format": "ipv4"
+        },
+        "podName": {
+          "type": "string"
         }
       }
     },
     "CheckResults": {
       "type": "object",
+      "properties": {
+        "dnsResults": {
+          "$ref": "#/definitions/DnsResults"
+        },
+        "httpResults": {
+          "$ref": "#/definitions/HttpResults"
+        },
+        "podResults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/PodResult"
+          }
+        },
+        "tcpResults": {
+          "$ref": "#/definitions/TcpResults"
+        }
+      }
+    },
+    "ClusterHealthResults": {
+      "type": "object",
+      "required": [
+        "OK"
+      ],
+      "properties": {
+        "OK": {
+          "type": "boolean",
+          "default": false
+        },
+        "duration-ns": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "generated-at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "nodesHealthy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nodesTotal": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "nodesUnhealthy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "DnsResults": {
+      "type": "object",
       "additionalProperties": {
-        "$ref": "#/definitions/PodResult"
+        "$ref": "#/definitions/ProbeResult"
+      }
+    },
+    "HealthCheckResults": {
+      "type": "object",
+      "properties": {
+        "OK": {
+          "type": "boolean",
+          "default": false
+        },
+        "duration-ns": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "generated-at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "HttpResults": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ProbeResult"
       }
     },
     "PingResults": {
@@ -359,16 +692,46 @@ func init() {
           "type": "boolean",
           "default": false
         },
+        "PingTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "PodIP": {
+          "type": "string",
+          "format": "ipv4"
+        },
         "error": {
           "type": "string"
         },
         "response": {
           "$ref": "#/definitions/PingResults"
         },
+        "response-time-ms": {
+          "description": "wall clock time in milliseconds",
+          "type": "number",
+          "format": "int64"
+        },
         "status-code": {
           "type": "integer",
           "format": "int32"
         }
+      }
+    },
+    "ProbeResult": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "response-time-ms": {
+          "type": "number",
+          "format": "int64"
+        }
+      }
+    },
+    "TcpResults": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/ProbeResult"
       }
     }
   }

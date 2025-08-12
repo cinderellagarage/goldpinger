@@ -8,7 +8,7 @@ package operations
 import (
 	"net/http"
 
-	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/middleware"
 )
 
 // CheckServicePodsHandlerFunc turns a function with the right signature into a check service pods handler
@@ -29,7 +29,7 @@ func NewCheckServicePods(ctx *middleware.Context, handler CheckServicePodsHandle
 	return &CheckServicePods{Context: ctx, Handler: handler}
 }
 
-/*CheckServicePods swagger:route GET /check checkServicePods
+/* CheckServicePods swagger:route GET /check checkServicePods
 
 Queries the API server for all other pods in this service, and pings them via their pods IPs. Calls their /ping endpoint
 
@@ -42,17 +42,15 @@ type CheckServicePods struct {
 func (o *CheckServicePods) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
 	var Params = NewCheckServicePodsParams()
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
 	res := o.Handler.Handle(Params) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
 }

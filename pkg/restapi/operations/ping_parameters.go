@@ -13,7 +13,8 @@ import (
 )
 
 // NewPingParams creates a new PingParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewPingParams() PingParams {
 
 	return PingParams{}

@@ -6,16 +6,17 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // CheckAllResults check all results
+//
 // swagger:model CheckAllResults
 type CheckAllResults struct {
 
@@ -31,6 +32,9 @@ type CheckAllResults struct {
 	// hosts number
 	HostsNumber int32 `json:"hosts-number,omitempty"`
 
+	// probe results
+	ProbeResults map[string]ProbeResults `json:"probeResults,omitempty"`
+
 	// responses
 	Responses map[string]CheckAllPodResult `json:"responses,omitempty"`
 }
@@ -40,6 +44,10 @@ func (m *CheckAllResults) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateHosts(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateProbeResults(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -54,7 +62,6 @@ func (m *CheckAllResults) Validate(formats strfmt.Registry) error {
 }
 
 func (m *CheckAllResults) validateHosts(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Hosts) { // not required
 		return nil
 	}
@@ -68,6 +75,8 @@ func (m *CheckAllResults) validateHosts(formats strfmt.Registry) error {
 			if err := m.Hosts[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("hosts" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("hosts" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -78,8 +87,25 @@ func (m *CheckAllResults) validateHosts(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *CheckAllResults) validateResponses(formats strfmt.Registry) error {
+func (m *CheckAllResults) validateProbeResults(formats strfmt.Registry) error {
+	if swag.IsZero(m.ProbeResults) { // not required
+		return nil
+	}
 
+	for k := range m.ProbeResults {
+
+		if val, ok := m.ProbeResults[k]; ok {
+			if err := val.Validate(formats); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *CheckAllResults) validateResponses(formats strfmt.Registry) error {
 	if swag.IsZero(m.Responses) { // not required
 		return nil
 	}
@@ -91,6 +117,83 @@ func (m *CheckAllResults) validateResponses(formats strfmt.Registry) error {
 		}
 		if val, ok := m.Responses[k]; ok {
 			if err := val.Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("responses" + "." + k)
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("responses" + "." + k)
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this check all results based on the context it is used
+func (m *CheckAllResults) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateHosts(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateProbeResults(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateResponses(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *CheckAllResults) contextValidateHosts(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Hosts); i++ {
+
+		if m.Hosts[i] != nil {
+			if err := m.Hosts[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("hosts" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("hosts" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *CheckAllResults) contextValidateProbeResults(ctx context.Context, formats strfmt.Registry) error {
+
+	for k := range m.ProbeResults {
+
+		if val, ok := m.ProbeResults[k]; ok {
+			if err := val.ContextValidate(ctx, formats); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *CheckAllResults) contextValidateResponses(ctx context.Context, formats strfmt.Registry) error {
+
+	for k := range m.Responses {
+
+		if val, ok := m.Responses[k]; ok {
+			if err := val.ContextValidate(ctx, formats); err != nil {
 				return err
 			}
 		}
@@ -119,6 +222,7 @@ func (m *CheckAllResults) UnmarshalBinary(b []byte) error {
 }
 
 // CheckAllResultsHostsItems0 check all results hosts items0
+//
 // swagger:model CheckAllResultsHostsItems0
 type CheckAllResultsHostsItems0 struct {
 
@@ -129,6 +233,9 @@ type CheckAllResultsHostsItems0 struct {
 	// pod IP
 	// Format: ipv4
 	PodIP strfmt.IPv4 `json:"podIP,omitempty"`
+
+	// pod name
+	PodName string `json:"podName,omitempty"`
 }
 
 // Validate validates this check all results hosts items0
@@ -150,7 +257,6 @@ func (m *CheckAllResultsHostsItems0) Validate(formats strfmt.Registry) error {
 }
 
 func (m *CheckAllResultsHostsItems0) validateHostIP(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.HostIP) { // not required
 		return nil
 	}
@@ -163,7 +269,6 @@ func (m *CheckAllResultsHostsItems0) validateHostIP(formats strfmt.Registry) err
 }
 
 func (m *CheckAllResultsHostsItems0) validatePodIP(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.PodIP) { // not required
 		return nil
 	}
@@ -172,6 +277,11 @@ func (m *CheckAllResultsHostsItems0) validatePodIP(formats strfmt.Registry) erro
 		return err
 	}
 
+	return nil
+}
+
+// ContextValidate validates this check all results hosts items0 based on context it is used
+func (m *CheckAllResultsHostsItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

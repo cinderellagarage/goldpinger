@@ -15,12 +15,13 @@
 package goldpinger
 
 import (
-	"log"
+	"context"
 	"time"
 
-	"github.com/bloomberg/goldpinger/pkg/models"
+	"github.com/bloomberg/goldpinger/v3/pkg/models"
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/zap"
 )
 
 var (
@@ -44,6 +45,16 @@ var (
 		[]string{
 			"goldpinger_instance",
 			"status",
+		},
+	)
+
+	goldpingerClusterHealthGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "goldpinger_cluster_health_total",
+			Help: "1 if all check pass, 0 otherwise",
+		},
+		[]string{
+			"goldpinger_instance",
 		},
 	)
 
@@ -82,20 +93,53 @@ var (
 			"type",
 		},
 	)
-
+	goldpingerDnsErrorsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "goldpinger_dns_errors_total",
+			Help: "Statistics of DNS errors per instance",
+		},
+		[]string{
+			"goldpinger_instance",
+			"host",
+		},
+	)
+	goldPingerTcpErrorsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "goldpinger_tcp_errors_total",
+			Help: "Statistics of TCP probe errors per instance",
+		},
+		[]string{
+			"goldpinger_instance",
+			"host",
+		},
+	)
+	goldPingerHttpErrorsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "goldpinger_http_errors_total",
+			Help: "Statistics of HTTP probe errors per instance",
+		},
+		[]string{
+			"goldpinger_instance",
+			"host",
+		},
+	)
 	bootTime = time.Now()
 )
 
 func init() {
 	prometheus.MustRegister(goldpingerStatsCounter)
 	prometheus.MustRegister(goldpingerNodesHealthGauge)
+	prometheus.MustRegister(goldpingerClusterHealthGauge)
 	prometheus.MustRegister(goldpingerResponseTimePeersHistogram)
 	prometheus.MustRegister(goldpingerResponseTimeKubernetesHistogram)
 	prometheus.MustRegister(goldpingerErrorsCounter)
-	log.Println("Metrics setup - see /metrics")
+	prometheus.MustRegister(goldpingerDnsErrorsCounter)
+	prometheus.MustRegister(goldPingerHttpErrorsCounter)
+	prometheus.MustRegister(goldPingerTcpErrorsCounter)
+	zap.L().Info("Metrics setup - see /metrics")
 }
 
-func GetStats() *models.PingResults {
+func GetStats(ctx context.Context) *models.PingResults {
 	// GetStats no longer populates the received and made calls - use metrics for that instead
 	return &models.PingResults{
 		BootTime: strfmt.DateTime(bootTime),
@@ -123,11 +167,46 @@ func CountHealthyUnhealthyNodes(healthy, unhealthy float64) {
 	).Set(unhealthy)
 }
 
+// SetClusterHealth sets the cluster health gauge to 1 (healthy) or 0 (unhealthy)
+func SetClusterHealth(healthy bool) {
+	value := 1.0
+	if !healthy {
+		value = 0
+	}
+	goldpingerClusterHealthGauge.WithLabelValues(
+		GoldpingerConfig.Hostname,
+	).Set(value)
+}
+
 // counts instances of various errors
 func CountError(errorType string) {
 	goldpingerErrorsCounter.WithLabelValues(
 		GoldpingerConfig.Hostname,
 		errorType,
+	).Inc()
+}
+
+// counts instances of dns errors
+func CountDnsError(host string) {
+	goldpingerDnsErrorsCounter.WithLabelValues(
+		GoldpingerConfig.Hostname,
+		host,
+	).Inc()
+}
+
+// CountTcpError counts instances of tcp errors for prober
+func CountTcpError(host string) {
+	goldPingerTcpErrorsCounter.WithLabelValues(
+		GoldpingerConfig.Hostname,
+		host,
+	).Inc()
+}
+
+// CountHttpError counts instances of tcp errors for prober
+func CountHttpError(host string) {
+	goldPingerHttpErrorsCounter.WithLabelValues(
+		GoldpingerConfig.Hostname,
+		host,
 	).Inc()
 }
 
